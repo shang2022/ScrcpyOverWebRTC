@@ -82,7 +82,8 @@ ScrcpyOverWebRTC/
 │   ├── scrcpy-server.jar
 │   └── setup.sh
 ├── start_server.sh      # Startup script
-├── build.sh             # Compile & package script
+├── build.sh             # macOS / Linux compile & package script
+├── build.bat            # Windows compile & package script
 └── README.md
 ```
 
@@ -90,10 +91,19 @@ ScrcpyOverWebRTC/
 
 The frontend code is fully open-source. You are free to modify the UI, adjust interactions, or perform secondary development.
 
+> [!IMPORTANT]
+> **Prerequisites**: Local development and building require [Node.js](https://nodejs.org/) (recommended v18 or higher) to be installed beforehand.
+
 ### Quick Build
-```bash
-./build.sh
-```
+- **macOS / Linux**:
+  ```bash
+  ./build.sh
+  ```
+- **Windows**:
+  Double-click `build.bat` or run in terminal:
+  ```cmd
+  build.bat
+  ```
 
 ### Tech Stack
 - Vue 3 + Composition API
