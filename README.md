@@ -10,180 +10,116 @@
   <img src="screenshot/screenshot-phone.jpg" width="20%" />
 </p>
 
-## 核心特性
+## 1. 核心特性
 
 - **极致流畅**: 采用零扫描流解析 (Zero-Search Parsing)，不引入新的内存拷贝，性能和原生scrcpy基本一致。
 - **公网增强**: 原生支持 IPv6 直连，彻底绕过运营商 CGNAT 封锁，显著提升移动网络下的打洞成功率。
-- **全能交互**: 支持多指触控、物理按键模拟、自定义映射（键盘按键映射到屏幕）、WebADB 终端、实时快照。
+- **全能交互**: 支持多指触控、物理按键模拟、自定义映射（键盘按键映射到屏幕）、WebADB 终端、实时高频快照。
 - **动态控制**: 支持在连接前或连接后通过 UI 面板动态修改设备分辨率、码率、帧率以及开启/关闭 BWE 动态码率。
 - **一键部署**: 支持 WebUSB/WebADB 浏览器直连物理设备部署，无需本地安装 ADB 环境。
 - **网页直连**: 支持所有终端（IOS/Android/Win/Mac/Linux）通过浏览器连接。
-- **摆脱ADB**: 部署后无需通过有线或无线的形式连接adb，并支持将adb转发到网页中直接使用。
+- **支持群控**: 支持高同步率群控, 从控机器支持高帧率预览。
+- **摆脱ADB**: 支持以root权限运行
 
-## 目录结构
-
-```
-ScrcpyOverWebRTC/
-├── web-app/              # 前端源代码
-├── bin/                  # 信令服务器
-│   ├── linux_amd64/
-│   ├── linux_arm64/
-│   ├── darwin_amd64/
-│   ├── darwin_arm64/
-│   ├── windows_amd64/
-│   └── windows_arm64/
-├── agentd/               # Android Agent
-│   ├── cloudphone-agent-arm64
-│   ├── cloudphone-agent-amd64
-│   ├── libsys_core.so
-│   ├── run.bat
-│   └── run.sh
-├── android/             # Android 端独立包 (可在Android系统内完整运行)
-│   ├── webrtc-signaling
-│   ├── cloudphone-agent
-│   ├── libsys_core.so
-│   └── setup.sh
-├── start_server.sh      # 启动脚本
-├── build.sh             # macOS / Linux 编译打包脚本
-├── build.bat            # Windows 编译打包脚本
-└── README.md
-```
-
-## 快速开始
-
-### 1. 启动服务器
-
+## 2. 快速开始
 ```bash
-# 默认启动 (HTTP 模式)
-./start_server.sh
-
-# 启用 HTTPS (TLS) 模式 (需要配置 certs/ 目录下的 server.crt 和 server.key)
-./start_server.sh -tls
+  docker pull buutuu/scrcpy-over-webrtc:latest
 ```
-*Windows 用户请进入 `bin/` 目录运行 `run.bat` (若需 TLS 请在命令行中加上 `-tls` 参数或通过环境变量 `USE_TLS=true` 运行)*
 
-启动后在浏览器访问：
-- HTTP 模式：`http://localhost:8443` 或 `http://<服务器IP>:8443`
-- HTTPS 模式：`https://localhost:8443` 或 `https://<服务器IP>:8443` (在公网或使用 WebUSB 免驱部署时，推荐使用 HTTPS 安全上下文)
+### 2.1 Host 网络模式 (推荐)
+如果您的 Linux 宿主机有独立的公网 IP 或是纯内网环境，且没有端口占用冲突，**首选 Host 模式**。
 
-> v0.1.8后增加账户和租户管理。默认账号admin, 密码admin123
+*   **启动命令**:
+    ```bash
+    docker run -d \
+      --name cp-aio \
+      --net=host \
+      -e PUBLIC_IP=<宿主机真实IP> \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+*   **优势**: 容器直接使用宿主机网络，零 NAT 转发损耗，无需映射大量 UDP 端口段，网络吞吐量最高。
+*   **注意**: 必须确保宿主机上 `3478`（TURN）和 `8443`（信令）等端口未被其他服务占用。
+*   **PUBLIC_IP**: 当有公网IP时填入公网IP，当局域网内使用内填入宿主机IP
 
-### 2. 部署 Agent 到 Android
-先用adb连接上手机
+---
+
+### 2.2 NAT / Bridge 网络模式 (常规)
+如果运行在 macOS、Windows 等 Docker 虚拟化环境，或者出于安全考量必须使用 `-p` 映射端口，请务必遵循以下两条策略，**切忌映射整个 `49152-65535` 端口段（会导致宿主机 OOM 崩溃）**。
+
+#### 策略 A：收窄 TURN UDP 端口段映射
+在配置中指定一个极窄的中转 UDP 端口区间（如 100 个），并只放行此范围。
+
+*   **启动命令 (常规对称映射)**:
+    ```bash
+    docker run -d --name cp-aio \
+      -p 8443:8443 \
+      -p 3478:3478/tcp \
+      -p 3478:3478/udp \
+      -p 55000-55100:55000-55100/udp \
+      -e PUBLIC_IP=<宿主机物理IP> \
+      -e COTURN_MIN_PORT=55000 \
+      -e COTURN_MAX_PORT=55100 \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+
+#### 策略 B：非对称端口映射（重点）
+当宿主机的默认端口（如 8443、3478）被其他服务占用，导致您不得不将外部端口映射为非对称端口（如 8443 映射为 18443，3478 映射为 13478）时。
+
+> [!WARNING]
+> 如果直接启动，容器内部的信令服务由于不知道外部映射了什么端口，依然会将默认的 `3478` 作为 TURN 地址下发给前端。导致前端网页尝试连接 `宿主机:3478` 失败而黑屏。
+> 
+> **解决方案**：必须传入 `EXTERNAL_SIGNALING_PORT` 和 `EXTERNAL_TURN_PORT` 环境变量，明确告知容器外部映射的公开端口。
+
+*   **启动命令 (非对称端口映射)**:
+    ```bash
+    docker run -d --name cp-aio \
+      -p 18443:8443 \
+      -p 13478:3478/tcp \
+      -p 13478:3478/udp \
+      -p 55000-55100:55000-55100/udp \
+      -e PUBLIC_IP=192.168.100.242 \
+      -e COTURN_MIN_PORT=55000 \
+      -e COTURN_MAX_PORT=55100 \
+      -e EXTERNAL_SIGNALING_PORT=18443 \
+      -e EXTERNAL_TURN_PORT=13478 \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+
+*   **PUBLIC_IP**: 当有公网IP时填入公网IP，当局域网内使用内填入宿主机IP
+
+## 3. 添加机器
+
+服务拉起后，一切连接入口都将通过容器日志清晰打印。
+
+### 3.1 终端信息打印
+运行以下命令查看终端的醒目接入说明：
 ```bash
-cd agentd
-# 如果服务器为 HTTP 模式
-./run.sh -id my-phone -signaling ws://<服务器IP>:8443
-
-# 如果服务器启用了 HTTPS (TLS) 模式
-./run.sh -id my-phone -signaling wss://<服务器IP>:8443
+docker logs cp-aio
 ```
-> 机器未安装adb, 也可以通过网页ADB部署 (推荐使用 HTTPS 访问网页以正常唤起浏览器的 WebUSB/WebADB 接口)
+日志在最后会输出由传入变量自动计算得到的接入指南：
+```text
+========================================================
+          🎉 CloudPhone 容器服务已成功启动！
+========================================================
+ 1. 网页管理后台连接 URL (请在浏览器中打开):
+    https://192.168.100.242:18443
 
-#### 3. Android 本地全环境运行 (脱离电脑)
-你可以将包含信令服务器在内的全套环境推送到手机内执行，让手机自身成为服务器：
-
-- **Windows 电脑用户**：
-  直接双击运行 `android/setup.bat` 脚本（或在命令行下运行 `setup.bat <adb-serial>`）。脚本会自动推送二进制与 `assets/` 资源，并一键在安卓手机端拉起信令服务器与 Agent。
-- **Mac / Linux 电脑用户**：
-  1. 推送安卓独立包与静态资源：
-     ```bash
-     adb push android /data/local/tmp/
-     adb push assets /data/local/tmp/android/
-     ```
-  2. 在手机中启动：
-     ```bash
-     adb shell sh /data/local/tmp/android/setup.sh
-     ```
-
-#### 4. Docker / Redroid 容器
-Agent 运行在隔离容器内时，需指定宿主机ip, 并在Docker启动参数中增加 `-p 50000:50000/udp`
-```bash
-./run.sh -id redroid-01 \
-  -signaling ws://<服务器IP>:8443 \
-  -external-addr "<宿主机-IP>" \
-  -webrtc-port 50000
+ 2. Android 设备/容器 Agent 接入启动指令:
+    ./cloudphone-agent \
+      -signaling "wss://192.168.100.242:18443/register_agent" \
+      -id "<您的设备ID>" \
+      -ice-servers "turn:cloudphone_user:cloudphone_secure_password@192.168.100.242:13478?transport=udp,stun:192.168.100.242:13478"
+========================================================
 ```
 
-## 前端开发 (web-app)
+---
 
-前端代码全部开源，您可以自由修改 UI、调整交互或进行二次开发。
+## 4. 手动网页部署与 adb 指导
 
-> [!IMPORTANT]
-> **前提条件**：本地开发与构建需要先安装 [Node.js](https://nodejs.org/) (推荐 v18+ 或更高版本)。
+我们在前端 Web 页面中集成了方便离线/手动调试的面板：
 
-### 快速构建
-- **macOS / Linux**:
-  ```bash
-  ./build.sh
-  ```
-- **Windows**:
-  双击运行 `build.bat` 或在终端运行：
-  ```cmd
-  build.bat
-  ```
-
-### 技术栈
-- Vue 3 + Composition API
-- Vite 构建工具
-- Pinia 状态管理
-- WebRTC 数据流与视频流通信
-
-### 本地开发调试
-```bash
-cd web-app
-npm install
-npm run dev
-```
-
-### 功能特性
-- **纯网页端设备矩阵**: 实时显示在线设备与画面快照。
-- **低延迟控制**: WebRTC 视频流 + 自定义协议的触摸/按键映射。
-- **自定义改键引擎**: 支持点击、滑动、虚拟摇杆及命令等多种自定义映射。
-- **WebADB 控制台**: 内嵌基于 `xterm.js` 的终端与原生 ADB 隧道，实现云端免驱调试。
-- **参数动态设置**: 支持在连接前通过 UI 界面动态配置码率、最大分辨率、帧率、BWE 动态带宽以及日志级别。
-
-## Agent 部署参数
-
-```bash
-./run.sh -id <设备ID> -signaling ws://<服务器IP>:8443 [其他参数]
-```
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-id` | 设备唯一标识 | 必填 |
-| `-signaling` | 信令服务器地址 | 必填 |
-| `-external-addr` | 手动指定宿主机或公网 IP | 自动检测 |
-| `-webrtc-port` | WebRTC 绑定的固定通信端口 | 50000 |
-| `-bitrate` | 视频码率 (bps) | 4000000 |
-| `-max-fps` | 最高帧率 | 不限制 |
-| `-max-size` | 视频最长边 | 不限制 |
-| `-bwe` | 启用 WebRTC 带宽评估 (TWCC) 及动态码率调节 | true |
-| `-snapshot-interval`| 仪表盘快照更新频率 (秒) | 10 |
-| `-root` | 强制以 Root 权限启动服务 | false |
-
-## 协议说明 (面向第三方对接)
-
-前端暴露的底层协议信息，方便您接入自己的客户端系统：
-
-### 信令协议 (WebSocket)
-- 接口路径: `/connect_client`
-- 支持的消息指令: `offer`, `answer`, `ice_candidate`, `device_list`, `device_quit`
-
-### WebRTC DataChannel
-建立 WebRTC 连接后，Agent 会开放两个关键的离带数据通道（DataChannel）：
-- `input-channel`: 用于下发触摸与按键指令
-- `adb-channel`: ADB 裸流传输隧道
-
-#### Touch 控制协议示例
-前端通过 `input-channel` 发送 JSON 字符串：
-```json
-{"type":"touch", "id":0, "action":0, "x":100, "y":200, "w":1080, "h":1920}
-```
-- `action`: `0`=DOWN, `1`=UP, `2`=MOVE
-- `id`: 手指追踪 ID（0-9 代表触控，-1 代表鼠标）
-- `x`/`y`: 坐标
-- `w`/`h`: 参考屏幕宽高（Agent 内部会自动根据设备实际分辨率重新计算映射比例）
+1.  **资源卡片下载**：网页右下角提供了可以直接下载对应平台 `Agent (ARM64/AMD64/ARMv7)` 以及配套 `scrcpy 核心库 (libsys_core.so)` 的一键下载卡片。
+2.  **ADB 命令行一键生成**：页面会根据您当前的输入参数，动态拼接生成完备的手动 ADB 启动命令，并配以 `一键复制` 按钮，直接拷贝到终端运行即可，杜绝了多命令行参数拼接错误的烦恼。
 
 ## License
 
