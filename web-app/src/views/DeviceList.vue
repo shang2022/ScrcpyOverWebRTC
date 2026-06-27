@@ -30,6 +30,44 @@
           >
           <span class="size-value">{{ cardSize }}px</span>
         </div>
+
+        <div class="preview-mode-switch">
+          <label class="switch-label" title="开启后，可视区域内的虚机将使用 WebCodecs 硬件加速播放 10fps 实时预览">
+            <input
+              type="checkbox"
+              v-model="deviceStore.globalPreviewMode"
+              class="switch-checkbox"
+            >
+            <span class="switch-text">高频预览</span>
+          </label>
+        </div>
+
+        <!-- 群控快捷工具栏 -->
+        <div v-if="groupControlStore.isGroupControlActive" class="group-quick-actions animate-fade-in">
+          <span class="group-mode-badge">群控主控: {{ groupControlStore.masterId }}</span>
+          <button class="action-btn-mini" @click.stop="selectAllOnline" title="全选所有在线设备">全选在线</button>
+          <button class="action-btn-mini" @click.stop="clearSlaves" title="清空已勾选设备">清空</button>
+          
+          <div class="tag-select-dropdown">
+            <button class="action-btn-mini dropdown-trigger" @click.stop="showTagDropdown = !showTagDropdown">
+              按标签勾选 ▾
+            </button>
+            <div v-if="showTagDropdown" class="tag-dropdown-menu" @click.stop>
+              <div 
+                v-for="tag in tagStore.tags" 
+                :key="tag.id" 
+                class="tag-dropdown-item"
+                @click="selectByTag(tag.id)"
+              >
+                <span class="tag-color-dot" :style="{ backgroundColor: tag.color }"></span>
+                <span class="tag-name-text">{{ tag.name }}</span>
+              </div>
+              <div v-if="tagStore.tags.length === 0" class="tag-dropdown-empty">暂无标签</div>
+            </div>
+          </div>
+          <span class="selected-count-badge">已选 {{ groupControlStore.selectedSlaveIds.length }} 台</span>
+        </div>
+
         <div class="header-actions">
           <button class="deploy-btn secondary mobile-tag-action" @click="openTagManager('')" title="标签管理" aria-label="标签管理">
             <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
@@ -80,10 +118,108 @@
           <p>正在获取虚机列表...</p>
         </div>
 
-        <div v-else-if="deviceStore.devices.length === 0" class="state-view">
-          <div class="empty-icon">📵</div>
-          <h3>暂无在线虚机</h3>
-          <p>请确保 Agent 已启动并注册到 Signaling Server</p>
+        <div v-else-if="deviceStore.devices.length === 0" class="quickstart-container">
+          <div class="quickstart-header">
+            <div class="empty-icon">🔌</div>
+            <h3 class="qs-title">快速接入您的第一台云手机</h3>
+            <p class="qs-subtitle">当前系统中暂无在线设备。请使用以下方式之一，将 Android 设备（真机/模拟器/redroid 容器）注册至本控制端：</p>
+          </div>
+
+          <div class="quickstart-layout">
+            <!-- 方式一：网页一键 USB 部署 -->
+            <div class="qs-card-box highlight">
+              <div class="qs-badge">推荐</div>
+              <h4 class="qs-card-title">方式一：网页一键 USB 自动部署</h4>
+              <p class="qs-card-desc">物理手机通过 USB 连接当前电脑，利用浏览器的 WebUSB/WebADB 功能免装任何环境，直接一键检测架构、推送并拉起投屏 Agent，适合个人调试物理手机。</p>
+              <p class="qs-card-desc-warn">⚠️ 注意：此方式基于 WebUSB 协议直连物理端口，<b>不支持无线或网络 ADB 连接模式</b>。</p>
+              <div class="qs-action-wrapper">
+                <button class="qs-btn-primary" @click="goToDeploy">
+                  <svg class="qs-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                  </svg>
+                  前往网页 USB 部署
+                </button>
+              </div>
+            </div>
+
+            <!-- 方式二：手动/命令行快速部署 -->
+            <div class="qs-card-box">
+              <h4 class="qs-card-title">方式二：手动 / 命令行一键部署</h4>
+              <p class="qs-card-desc">适用于 Linux/macOS 物理设备、redroid 容器、远端虚拟机或已存在 adb 连接的集群。</p>
+
+              <!-- 接入前准备工作 -->
+              <div class="qs-prerequisites">
+                <div class="qs-prereq-title">📋 接入前准备工作：</div>
+                <ul class="qs-prereq-list">
+                  <li><b>手机端配置</b>：需进入「设置 -> 开发者选项」开启「USB 调试」；物理机需用数据线连上电脑。</li>
+                  <li><b>电脑端配置</b>：电脑需已安装并配置好 ADB 工具，并在命令行能成功识别到设备。</li>
+                </ul>
+              </div>
+
+              <!-- 动态参数配置区 -->
+              <div class="qs-form-grid">
+                <div class="qs-form-item">
+                  <label class="qs-form-label">信令服务器 IP:Port</label>
+                  <input v-model="quickstartSignaling" class="qs-form-input" placeholder="例如: 192.168.1.100:8443">
+                </div>
+                <div class="qs-form-item">
+                  <label class="qs-form-label">分配设备 ID (可选)</label>
+                  <input v-model="quickstartDeviceId" class="qs-form-input" placeholder="例如: device_01">
+                </div>
+              </div>
+
+              <!-- 核心配置展示 -->
+              <div class="qs-real-config">
+                <div class="qs-config-row">
+                  <span class="qs-config-label">信令连接 (-signaling):</span>
+                  <code class="qs-config-val">{{ signalingProtocol }}{{ quickstartSignaling }}/register_agent</code>
+                  <button class="qs-config-copy" @click="copyText(`${signalingProtocol}${quickstartSignaling}/register_agent`)">复制</button>
+                </div>
+                <div class="qs-config-row">
+                  <span class="qs-config-label">中转服务 (-ice-servers):</span>
+                  <code class="qs-config-val">{{ computedIceServers }}</code>
+                  <button class="qs-config-copy" @click="copyText(computedIceServers)">复制</button>
+                </div>
+              </div>
+
+              <!-- 步骤一：下载部署包 -->
+              <div class="qs-step-block">
+                <div class="qs-step-title">第一步：下载一键部署资源包（包含全架构 Agent 及一键执行脚本）</div>
+                <div class="qs-download-row">
+                  <a href="/agent/agent-deploy.zip" download="agent-deploy.zip" class="qs-download-link">
+                    <svg class="qs-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    下载统一部署包 (agent-deploy.zip)
+                  </a>
+                </div>
+              </div>
+
+              <!-- 步骤二：运行命令 -->
+              <div class="qs-step-block">
+                <div class="qs-step-title">第二步：解压 ZIP 并在连接了设备的终端运行命令</div>
+                
+                <!-- 切换 OS 平台 -->
+                <div class="qs-tabs">
+                  <button class="qs-tab" :class="{ active: qsActiveOs === 'unix' }" @click="qsActiveOs = 'unix'">Linux / macOS (一键)</button>
+                  <button class="qs-tab" :class="{ active: qsActiveOs === 'win' }" @click="qsActiveOs = 'win'">Windows CMD (一键)</button>
+                </div>
+
+                <!-- 终端视口 -->
+                <div class="qs-terminal">
+                  <pre v-if="qsActiveOs === 'unix'" class="qs-code-text"># 解压后在本地终端执行一键命令 (自动探测手机架构并推送拉起服务)
+chmod +x run.sh
+./run.sh -id "{{ quickstartDeviceId || 'device_01' }}" -signaling "{{ signalingProtocol }}{{ quickstartSignaling }}" -ice-servers "{{ computedIceServers }}"</pre>
+                  <pre v-else-if="qsActiveOs === 'win'" class="qs-code-text">:: 解压后在本地 CMD 窗口执行一键命令 (自动探测手机架构并推送拉起服务)
+run.bat -id "{{ quickstartDeviceId || 'device_01' }}" -signaling "{{ signalingProtocol }}{{ quickstartSignaling }}" -ice-servers "{{ computedIceServers }}"</pre>
+                  <button class="qs-copy-btn" @click="copyCommandText">复制运行指令</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div v-else-if="filteredDevices.length === 0" class="state-view">
@@ -140,13 +276,41 @@ import SettingsModal from '@/components/SettingsModal.vue'
 import TagManagerModal from '@/components/TagManagerModal.vue'
 
 import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceSettings } from '@/utils/settings'
+import { useGroupControlStore } from '@/stores/groupControl'
 
 const router = useRouter()
 const deviceStore = useDeviceStore()
 const tagStore = useTagStore()
+const groupControlStore = useGroupControlStore()
 const savedCardSize = localStorage.getItem('cloudphone_card_size')
 const cardSize = ref(savedCardSize ? parseInt(savedCardSize, 10) : 280)
 const searchQuery = ref('')
+const showTagDropdown = ref(false)
+
+function selectAllOnline() {
+  groupControlStore.selectAllOnline(deviceStore.devices)
+}
+
+function clearSlaves() {
+  groupControlStore.clearSlaves()
+}
+
+function selectByTag(tagId) {
+  groupControlStore.selectByTag(tagId, deviceStore.devices, tagStore)
+  showTagDropdown.value = false
+}
+
+function closeTagDropdownMenu() {
+  showTagDropdown.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('click', closeTagDropdownMenu)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeTagDropdownMenu)
+})
 
 watch(cardSize, (newVal) => {
   localStorage.setItem('cloudphone_card_size', newVal.toString())
@@ -187,8 +351,7 @@ function openGlobalSettings() {
 }
 
 function goToDeploy() {
-  window.history.pushState({}, '', '/deploy')
-  window.dispatchEvent(new Event('popstate'))
+  window.dispatchEvent(new CustomEvent('cloudphone-navigate', { detail: '/deploy' }))
 }
 
 function openSettings(deviceId) {
@@ -242,11 +405,45 @@ function getTagDeviceCount(tagId) {
   return deviceStore.devices.filter(device => tagStore.getTagIdsForDevice(device.id).includes(tagId)).length
 }
 
+const quickstartSignaling = ref('')
+const quickstartDeviceId = ref('device_01')
+const qsActiveOs = ref('unix')
+
+const signalingProtocol = computed(() => {
+  return window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+})
+
+const computedIceServers = computed(() => {
+  const host = quickstartSignaling.value || window.location.host
+  const ip = host.split(':')[0] || '127.0.0.1'
+  return `turn:cloudphone_user:cloudphone_secure_password@${ip}:3478?transport=udp,stun:${ip}:3478`
+})
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('已成功复制到剪贴板！')
+  }).catch(err => {
+    console.error('复制失败:', err)
+    alert('复制失败，请手动选择复制。')
+  })
+}
+
+function copyCommandText() {
+  let cmd = ''
+  if (qsActiveOs.value === 'unix') {
+    cmd = `./run.sh -id "${quickstartDeviceId.value || 'device_01'}" -signaling "${signalingProtocol.value}${quickstartSignaling.value}" -ice-servers "${computedIceServers.value}"`
+  } else if (qsActiveOs.value === 'win') {
+    cmd = `run.bat -id "${quickstartDeviceId.value || 'device_01'}" -signaling "${signalingProtocol.value}${quickstartSignaling.value}" -ice-servers "${computedIceServers.value}"`
+  }
+  copyText(cmd)
+}
+
 function toggleSelectedTag(tagId) {
   tagStore.setSelectedTag(tagStore.selectedTagId === tagId ? '' : tagId)
 }
 
 onMounted(() => {
+  quickstartSignaling.value = window.location.host
   deviceStore.fetchDevices()
   refreshInterval = setInterval(() => {
     deviceStore.fetchDevices()
@@ -407,6 +604,34 @@ function handleOpenTagManagerEvent() {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--border);
   border-radius: 7px;
+}
+
+.preview-mode-switch {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch-checkbox {
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.switch-text {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .size-control .label {
@@ -708,5 +933,512 @@ function handleOpenTagManagerEvent() {
   .page-title {
     font-size: 16px;
   }
+}
+
+/* 群控开关样式 */
+/* 群控快捷操作面板 */
+.group-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 10px;
+  margin-right: 12px;
+}
+
+.action-btn-mini {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn-mini:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.action-btn-mini.dropdown-trigger {
+  position: relative;
+}
+
+/* 标签下拉菜单 */
+.tag-select-dropdown {
+  position: relative;
+}
+
+.tag-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: #161b22;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  min-width: 130px;
+  padding: 6px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.tag-dropdown-menu::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tag-dropdown-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.tag-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.tag-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tag-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tag-dropdown-empty {
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.selected-count-badge {
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(26, 115, 232, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.group-mode-badge {
+  font-size: 11px;
+  color: #ff9f43;
+  background: rgba(255, 159, 67, 0.12);
+  border: 1px solid rgba(255, 159, 67, 0.25);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 简单淡入动画 */
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Quickstart 接入指引样式 */
+.quickstart-container {
+  max-width: 1200px;
+  margin: 30px auto;
+  padding: 0 24px;
+  color: var(--text-primary);
+}
+
+.quickstart-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.quickstart-header .empty-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+.qs-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  background: linear-gradient(135deg, #58a6ff 0%, #bc8cff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.qs-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 680px;
+  margin: 0 auto;
+  opacity: 0.85;
+}
+
+.quickstart-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+@media (min-width: 768px) {
+  .quickstart-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.qs-card-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.qs-card-box:hover {
+  transform: translateY(-2px);
+  border-color: rgba(88, 166, 255, 0.4);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3);
+}
+
+.qs-card-box.highlight {
+  background: rgba(88, 166, 255, 0.03);
+  border-color: rgba(88, 166, 255, 0.25);
+}
+
+.qs-card-box.highlight:hover {
+  border-color: rgba(88, 166, 255, 0.6);
+}
+
+.qs-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #238636;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  text-transform: uppercase;
+}
+
+.qs-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: #c9d1d9;
+}
+
+.qs-card-box.highlight .qs-card-title {
+  color: #58a6ff;
+}
+
+.qs-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 24px 0;
+  flex: 1;
+}
+
+.qs-action-wrapper {
+  margin-top: auto;
+}
+
+.qs-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 42px;
+  background: #238636;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.qs-btn-primary:hover {
+  background: #2ea043;
+}
+
+.qs-btn-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* 方式二：手动配置与命令行样式 */
+.qs-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+@media (min-width: 480px) {
+  .qs-form-grid {
+    grid-template-columns: 1.2fr 1fr;
+  }
+}
+
+.qs-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qs-form-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.qs-form-input {
+  height: 34px;
+  padding: 0 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.qs-form-input:focus {
+  border-color: var(--accent);
+}
+
+/* 真实配置列表 */
+.qs-real-config {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+}
+
+.qs-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.qs-config-row:last-child {
+  border-bottom: none;
+}
+
+.qs-config-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.qs-config-val {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #58a6ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.qs-config-copy {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.qs-config-copy:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+/* 步骤块 */
+.qs-step-block {
+  margin-bottom: 18px;
+}
+
+.qs-step-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b949e;
+  margin-bottom: 10px;
+}
+
+.qs-download-row {
+  display: flex;
+}
+
+.qs-download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(88, 166, 255, 0.1);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  color: #58a6ff;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.qs-download-link:hover {
+  background: rgba(88, 166, 255, 0.18);
+  border-color: rgba(88, 166, 255, 0.5);
+}
+
+/* 终端/代码切换 */
+.qs-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.qs-tab {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.qs-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.qs-tab.active {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+  font-weight: 600;
+}
+
+.qs-terminal {
+  position: relative;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  padding-bottom: 40px;
+}
+
+.qs-code-text {
+  margin: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11.5px;
+  color: #c9d1d9;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+
+.qs-copy-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.qs-copy-btn:hover {
+  background: #30363d;
+  border-color: #8b949e;
+}
+
+/* 警告提示及准备条件样式 */
+.qs-card-desc-warn {
+  font-size: 11.5px;
+  color: #ff7675;
+  margin-top: -12px;
+  margin-bottom: 20px;
+  line-height: 1.5;
+  background: rgba(255, 118, 117, 0.08);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 118, 117, 0.15);
+}
+
+.qs-prerequisites {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+
+.qs-prereq-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff9f43;
+  margin-bottom: 6px;
+}
+
+.qs-prereq-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.qs-prereq-list li {
+  margin-bottom: 4px;
+}
+
+.qs-prereq-list li:last-child {
+  margin-bottom: 0;
 }
 </style>

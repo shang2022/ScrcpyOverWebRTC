@@ -108,6 +108,11 @@
           </button>
           
           <div class="mobile-fab-menu" :class="{ 'show': showMobileMenu, 'align-left': isFabOnLeft, 'align-top': isFabOnTop }">
+            <button class="fab-item" :class="{ 'group-active': groupControlStore.isGroupControlActive }" @click="toggleGroupControl(); showMobileMenu=false">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>
+              {{ groupControlStore.isGroupControlActive ? '取消群控' : '群控主控' }}
+            </button>
+            <div class="fab-divider"></div>
             <button class="fab-item" @click="quickKey('input keyevent 26'); showMobileMenu=false">
               <svg class="icon" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg> 电源
             </button>
@@ -185,6 +190,16 @@
     <!-- PC 右侧控制栏 -->
     <div v-if="!isMobile" class="control-sidebar">
       <div class="sidebar-group">
+        <button class="sidebar-btn group-control-btn" :class="{ active: groupControlStore.isGroupControlActive }" @click="toggleGroupControl" :title="groupControlStore.isGroupControlActive ? '退出群控主控模式' : '设为群控主控机'">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="9" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="5" rx="1"></rect>
+            <rect x="14" y="12" width="7" height="9" rx="1"></rect>
+            <rect x="3" y="16" width="7" height="5" rx="1"></rect>
+          </svg>
+          <span class="btn-text">{{ groupControlStore.isGroupControlActive ? '取消群控' : '群控主控' }}</span>
+        </button>
+        <div class="sidebar-divider"></div>
         <button class="sidebar-btn" @click="quickKey('input keyevent 26')" title="电源">
           <svg class="icon" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
           <span class="btn-text">电源</span>
@@ -291,6 +306,7 @@
       @save="saveSettings" 
       @reset="resetSettings"
     />
+
   </div>
 </template>
 
@@ -302,6 +318,7 @@ import { useWebRTC } from '@/composables/useWebRTC'
 import { useKeymapStore } from '@/stores/keymap'
 import { KeymapEngine } from '@/utils/keymapEngine'
 import { getDeviceSettings, saveDeviceSettings, hasCustomSettings, deleteDeviceSettings } from '@/utils/settings'
+import { useGroupControlStore } from '@/stores/groupControl'
 import ConnectionStatus from '@/components/ConnectionStatus.vue'
 import ScreenshotModal from '@/components/ScreenshotModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
@@ -318,6 +335,60 @@ const emit = defineEmits(['recommend-layout', 'close'])
 
 const deviceStore = useDeviceStore()
 const currentId = computed(() => props.deviceId)
+const groupControlStore = useGroupControlStore()
+
+// --- 群控从机渲染与事件分发逻辑 ---
+const lastSentMoveTime = {} // pointerId -> timestamp
+const lastSentMoveCoords = {} // pointerId -> { x, y }
+const THROTTLE_INTERVAL_MS = 25 // 40fps 
+const MOVE_DISTANCE_THRESHOLD = 4 // 4px
+
+// 群控广播发送处理 (包含滑动限流)
+function handleGroupControlBroadcast(evt) {
+  if (!groupControlStore.isGroupControlActive || groupControlStore.selectedSlaveIds.length === 0) return
+  
+  if (evt.type === 'touch' && evt.action === 2) { // Action 2 is MOVE
+    const ptrId = evt.id
+    const now = Date.now()
+    const lastTime = lastSentMoveTime[ptrId] || 0
+    const lastCoords = lastSentMoveCoords[ptrId]
+    
+    let shouldSend = false
+    if (now - lastTime >= THROTTLE_INTERVAL_MS) {
+      shouldSend = true
+    } else if (lastCoords) {
+      const dx = evt.x - lastCoords.x
+      const dy = evt.y - lastCoords.y
+      if (dx * dx + dy * dy >= MOVE_DISTANCE_THRESHOLD * MOVE_DISTANCE_THRESHOLD) {
+        shouldSend = true
+      }
+    } else {
+      shouldSend = true
+    }
+    
+    if (!shouldSend) return
+    
+    lastSentMoveTime[ptrId] = now
+    lastSentMoveCoords[ptrId] = { x: evt.x, y: evt.y }
+  }
+  
+  deviceStore.sendGroupControlEvent(groupControlStore.selectedSlaveIds, evt)
+}
+
+function bindWebRTCEvents(webrtcInstance) {
+  if (!webrtcInstance) return
+  webrtcInstance.onControlEvent((evt) => {
+    handleGroupControlBroadcast(evt)
+  })
+}
+
+function toggleGroupControl() {
+  const active = !groupControlStore.isGroupControlActive
+  groupControlStore.toggleGroupControl(active, currentId.value)
+  if (active) {
+    deviceStore.globalPreviewMode = true
+  }
+}
 
 const goBackToList = () => {
   deviceStore.clearActiveDevice()
@@ -725,6 +796,7 @@ watch(currentId, (newId) => {
 })
 
 function setupWebRTC() {
+  bindWebRTCEvents(currentWebRTC.value)
   if (stopAgentVersionWatch) {
     stopAgentVersionWatch()
     stopAgentVersionWatch = null
@@ -858,6 +930,10 @@ onUnmounted(() => {
   if (stopAgentVersionWatch) {
     stopAgentVersionWatch()
     stopAgentVersionWatch = null
+  }
+  // 退出群控主控模式
+  if (groupControlStore.masterId === currentId.value) {
+    groupControlStore.toggleGroupControl(false)
   }
   // Close PiP window if open
   if (pipWindow) {
@@ -1708,6 +1784,7 @@ function onTouchEnd(e) {
 
 .fab-item:active { background: var(--accent); }
 .fab-item.danger { color: #f85149; }
+.fab-item.group-active { color: #ff9f43; border-color: rgba(255, 159, 67, 0.4); background: rgba(255, 159, 67, 0.1); }
 .fab-item.add-btn { background: transparent; border-style: dashed; justify-content: center; }
 .fab-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
 
@@ -1786,7 +1863,7 @@ function onTouchEnd(e) {
   }
 }
 
-
-
-
+/* 群控从机侧栏布局 */
+.group-control-btn.active { background: rgba(255, 159, 67, 0.18); border-color: #ff9f43; color: #ff9f43; }
+.group-control-btn.active:hover { background: rgba(255, 159, 67, 0.28); }
 </style>

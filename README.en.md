@@ -7,182 +7,129 @@ It adopts a **Fat Agent (Direct Connection)** architecture, combined with **Hard
 
 <p align="center">
   <img src="screenshot/screenshot-pc.png" width="70%" />
-  <img src="screenshot/screenshot-phone.jpg" width="28%" />
+  <img src="screenshot/screenshot-phone.jpg" width="20%" />
 </p>
 
-## Core Features
+## 1. Core Features
 
 - **Ultimate Smoothness**: Utilizes Zero-Search Parsing, avoiding any new memory copies. Performance is practically identical to native scrcpy.
-- **Versatile Interaction**: Supports multi-touch, physical key simulation, custom key mapping (mapping keyboard keys to screen actions), WebADB terminal, and real-time snapshots.
+- **Public Network Enhancement**: Native support for IPv6 direct connection, completely bypassing carrier CGNAT blockades, significantly improving NAT hole punching success rates under mobile networks.
+- **All-Around Interaction**: Supports multi-finger touch, physical key simulation, custom key mappings (mapping keyboard keys to screen actions), WebADB console, and real-time snapshots.
 - **Dynamic Control**: Dynamically modify device resolution, bitrate, framerate, and toggle BWE (Bandwidth Estimation) dynamic bitrate from the UI panel, either before or after connecting.
 - **One-Click Deployment**: Supports deploying the Agent directly to physical devices via browser using WebUSB/WebADB. No local ADB environment required.
 - **Direct Web Access**: Supports connection from any OS (iOS/Android/Windows/Mac/Linux) simply via a web browser.
-- **ADB Freedom**: Once deployed, you no longer need wired or wireless ADB connections to the device. The system supports tunneling ADB directly into the web browser for immediate use.
+- **Group Control**: High-sync rate group control, sub-machines support high frame rate previews.
+- **ADB-Free**: Supports running with root privileges.
 
-## Quick Start
-
-### 1. Start the Server
-
-```bash
-# Default start (HTTP mode)
-./start_server.sh
-
-# Enable HTTPS (TLS) mode (Requires configuring server.crt and server.key in the certs/ directory)
-./start_server.sh -tls
-```
-*Windows users: Please go to the `bin/` directory and run `run.bat` (If TLS is needed, add the `-tls` parameter in the command line or run with the environment variable `USE_TLS=true`)*
-
-After starting, access it in your browser:
-- HTTP mode: `http://localhost:8443` or `http://<Server-IP>:8443`
-- HTTPS mode: `https://localhost:8443` or `https://<Server-IP>:8443` (Recommended, especially when deploying via WebUSB on public network)
-
-### 2. Deploy Agent to Android
+## 2. Quick Start
 
 ```bash
-cd agentd
-# If the server is in HTTP mode
-./run.sh -id my-phone -signaling ws://<Server-IP>:8443
-
-# If the server is in HTTPS (TLS) mode
-./run.sh -id my-phone -signaling wss://<Server-IP>:8443
+docker pull buutuu/scrcpy-over-webrtc:latest
 ```
-> Note: If the computer does not have ADB installed, you can also deploy via the WebADB interface in browser (HTTPS is recommended to allow browser access to the WebUSB/WebADB APIs).
 
-#### 3. Run entirely locally on Android (Computer-free)
-You can push the full suite including the signaling server directly to your phone, making the phone its own server:
+### 2.1 Host Network Mode (Recommended)
+If your Linux host has a public IP or is in a pure intranet environment with no port conflicts, **Host mode is the preferred option**.
 
-- **Windows Users**:
-  Double-click `android/setup.bat` (or run `setup.bat <adb-serial>` in command line). The script will automatically push the standalone binaries and `assets/` to your device and start all services in Android background.
-- **Mac / Linux Users**:
-  1. Push the Android standalone package and static assets:
-     ```bash
-     adb push android /data/local/tmp/
-     adb push assets /data/local/tmp/android/
-     ```
-  2. Start services on your phone:
-     ```bash
-     adb shell sh /data/local/tmp/android/setup.sh
-     ```
+*   **Startup Command**:
+    ```bash
+    docker run -d \
+      --name cp-aio \
+      --net=host \
+      -e PUBLIC_IP=<Host_IP> \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+*   **Advantages**: The container directly uses the host's network stack, resulting in zero NAT forwarding overhead, no need to expose large UDP port ranges, and maximum network throughput.
+*   **Note**: Ensure that ports `3478` (TURN) and `8443` (Signaling) on the host are not occupied by other services.
+*   **PUBLIC_IP**: Fill in the public IP if available, or the host's LAN IP for intranet usage.
 
-#### 4. Docker / Redroid Container
-When the Agent is running inside an isolated container, you need to specify the host IP and expose the UDP port in your Docker run command (e.g., `-p 50000:50000/udp`):
+---
+
+### 2.2 NAT / Bridge Network Mode (Regular)
+If running on macOS, Windows, or other environments where Docker virtualization is used, or if port exposure via `-p` is mandatory, follow these two strategies. **Avoid exposing the entire `49152-65535` port range (which can cause host OOM crashes)**.
+
+#### Strategy A: Narrow TURN UDP Port Range Mapping
+Expose only a very narrow UDP port range (e.g., 100 ports) in the config.
+
+*   **Startup Command (Symmetric Mapping)**:
+    ```bash
+    docker run -d --name cp-aio \
+      -p 8443:8443 \
+      -p 3478:3478/tcp \
+      -p 3478:3478/udp \
+      -p 55000-55100:55000-55100/udp \
+      -e PUBLIC_IP=<Host_IP> \
+      -e COTURN_MIN_PORT=55000 \
+      -e COTURN_MAX_PORT=55100 \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+
+#### Strategy B: Asymmetric Port Mapping (Important)
+If the default ports on the host (like 8443, 3478) are occupied, forcing you to map external ports to asymmetric ones (e.g., 8443 mapped to 18443, 3478 mapped to 13478).
+
+> [!WARNING]
+> If started directly, the signaling service inside the container will not know the external mapped ports and will continue to distribute the default `3478` to the frontend. This will cause the frontend to fail to connect to `Host:3478`, resulting in a black screen.
+> 
+> **Solution**: You must pass the `EXTERNAL_SIGNALING_PORT` and `EXTERNAL_TURN_PORT` environment variables to inform the container of the external mapped ports.
+
+*   **Startup Command (Asymmetric Port Mapping)**:
+    ```bash
+    docker run -d --name cp-aio \
+      -p 18443:8443 \
+      -p 13478:3478/tcp \
+      -p 13478:3478/udp \
+      -p 55000-55100:55000-55100/udp \
+      -e PUBLIC_IP=192.168.100.242 \
+      -e COTURN_MIN_PORT=55000 \
+      -e COTURN_MAX_PORT=55100 \
+      -e EXTERNAL_SIGNALING_PORT=18443 \
+      -e EXTERNAL_TURN_PORT=13478 \
+      buutuu/scrcpy-over-webrtc:latest
+    ```
+
+*   **PUBLIC_IP**: Fill in the public IP if available, or the host's LAN IP for intranet usage.
+
+## 3. Deploy Android Agent (Onboarding)
+
+Once the container is running, all connection details will be printed in the logs. Run the following command to view instructions:
 ```bash
-./run.sh -id redroid-01 \
-  -signaling ws://<Server-IP>:8443 \
-  -external-addr "<Host-IP>" \
-  -webrtc-port 50000
+docker logs cp-aio
 ```
 
-## Directory Structure
+### 3.1 One-Click Script Deployment (Preferred)
+1. Access the web dashboard and enter the **"Deploy New Device"** page.
+2. The page provides a unified **"One-Click Deployment Package (`agent-deploy.zip`)"** for download. Download and extract it on your local computer.
+3. Connect the physical phone to the computer via USB and enable **"USB Debugging"** in developer options.
+4. Open your local terminal, navigate to the extracted directory, and run the dynamically generated one-click script command:
+   * **Linux / macOS**: `chmod +x run.sh && ./run.sh -id <Device_ID> -signaling ws://<Host_IP>:8443`
+   * **Windows CMD**: `run.bat -id <Device_ID> -signaling ws://<Host_IP>:8443`
 
-```text
-ScrcpyOverWebRTC/
-├── web-app/              # Frontend source code
-├── bin/                  # Signaling server
-│   ├── linux_amd64/
-│   ├── linux_arm64/
-│   ├── darwin_amd64/
-│   ├── darwin_arm64/
-│   ├── windows_amd64/
-│   └── windows_arm64/
-├── agentd/               # Android Agent
-│   ├── cloudphone-agent-arm64
-│   ├── cloudphone-agent-amd64
-│   ├── libsys_core.so
-│   └── run.sh
-├── android/              # Android Standalone Package (Run entirely on Android)
-│   ├── webrtc-signaling
-│   ├── cloudphone-agent
-│   ├── libsys_core.so
-│   └── setup.sh
-├── start_server.sh      # Startup script
-├── build.sh             # macOS / Linux compile & package script
-├── build.bat            # Windows compile & package script
-└── README.md
-```
+---
 
-## Frontend Development (web-app)
+## 4. Frontend Secondary Development
 
-The frontend code is fully open-source. You are free to modify the UI, adjust interactions, or perform secondary development.
+The frontend source code is fully open-source and located in the `web-app` directory. We provide a **"Local Frontend + Official Docker AIO Backend"** hybrid development mode. You do not need to configure a Go build environment locally to perform real-time hot-reloading development.
 
-> [!IMPORTANT]
-> **Prerequisites**: Local development and building require [Node.js](https://nodejs.org/) (recommended v18 or higher) to be installed beforehand.
+1. **Prepare Backend**: Start the official AIO container as described above.
+2. **Install Frontend Dependencies**:
+   ```bash
+   cd web-app
+   npm install
+   ```
+3. **Local Development & Hot Reloading**:
+   Start the dev server by specifying the backend IP and port (Vite proxy will forward API and WebSocket connections to the container automatically):
+   ```bash
+   VITE_PROXY_TARGET=http://localhost:8443 npm run dev
+   ```
+4. **Build Frontend**:
+   ```bash
+   npm run build
+   ```
+   The build artifacts will be outputted to the root `assets/` directory by default.
 
-### Quick Build
-- **macOS / Linux**:
-  ```bash
-  ./build.sh
-  ```
-- **Windows**:
-  Double-click `build.bat` or run in terminal:
-  ```cmd
-  build.bat
-  ```
-
-### Tech Stack
-- Vue 3 + Composition API
-- Vite Build Tool
-- Pinia State Management
-- WebRTC Data & Video Stream Communication
-
-### Local Development & Debugging
-```bash
-cd web-app
-npm install
-npm run dev
-```
-
-### Features
-- **Web-Based Device Matrix**: Real-time display of online devices and screen snapshots.
-- **Low-Latency Control**: WebRTC video streaming + custom protocol touch/key mapping.
-- **Custom Keymapping Engine**: Supports various custom mappings including tapping, swiping, virtual joystick, and commands.
-- **WebADB Console**: Built-in terminal based on `xterm.js` with native ADB tunneling for driverless cloud debugging.
-- **Dynamic Parameter Settings**: Configure bitrate, max resolution, framerate, BWE dynamic bandwidth, and log levels directly from the UI before connecting.
-
-## Agent Deployment Parameters
-
-```bash
-./run.sh -id <Device-ID> -signaling ws://<Server-IP>:8443 [options]
-```
-
-| Parameter | Description | Default |
-|------|------|--------|
-| `-id` | Unique device identifier | Required |
-| `-signaling` | Signaling server address | Required |
-| `-external-addr` | Manually specify host or public IP | Auto-detect |
-| `-webrtc-port` | Fixed port bound for WebRTC communication | 50000 |
-| `-bitrate` | Video bitrate (bps) | 4000000 |
-| `-max-fps` | Maximum framerate | No limit |
-| `-max-size` | Video maximum edge length | No limit |
-| `-bwe` | Enable WebRTC Bandwidth Estimation (TWCC) & dynamic bitrate | true |
-| `-snapshot-interval`| Dashboard snapshot update interval (seconds) | 10 |
-| `-root` | Force run service with Root privileges | false |
-
-## Protocol Specification (For Third-Party Integration)
-
-The underlying protocol information exposed by the frontend, convenient for integrating your own client systems:
-
-### Signaling Protocol (WebSocket)
-- Endpoint: `/connect_client`
-- Supported message types: `offer`, `answer`, `ice_candidate`, `device_list`, `device_quit`
-
-### WebRTC DataChannel
-Once the WebRTC connection is established, the Agent opens two key out-of-band data channels (DataChannel):
-- `input-channel`: Used for sending touch and key commands.
-- `adb-channel`: ADB raw stream tunnel.
-
-#### Touch Control Protocol Example
-The frontend sends a JSON string via the `input-channel`:
-```json
-{"type":"touch", "id":0, "action":0, "x":100, "y":200, "w":1080, "h":1920}
-```
-- `action`: `0`=DOWN, `1`=UP, `2`=MOVE
-- `id`: Finger tracking ID (0-9 for touch, -1 for mouse)
-- `x`/`y`: Coordinates
-- `w`/`h`: Reference screen width and height (The Agent automatically recalculates the mapping ratio based on the device's actual resolution)
+> 💡 For detailed directory structure, development parameters, and Docker mount debugging instructions, please check the document: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
 **MIT License** - Frontend `web-app` directory source code is open source.
 
-*Note: The proxy and signaling server binaries under the `agentd` and `bin` directories are for learning and personal testing use only.*
+*Note: The binary core components inside the official Docker image are for educational and personal testing purposes only.*

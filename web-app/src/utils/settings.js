@@ -18,7 +18,10 @@ export const defaultSettings = {
   ipPreference: 'auto',
   showStats: true,
   videoCodecOptions: '',
-  camera: false
+  camera: false,
+  previewFps: 10,
+  previewSize: 360,
+  previewDecoder: 'wasm'
 }
 
 function parseSettings(parsed) {
@@ -41,6 +44,9 @@ function parseSettings(parsed) {
   if (parsed.showStats === undefined) parsed.showStats = defaultSettings.showStats
   if (parsed.videoCodecOptions === undefined) parsed.videoCodecOptions = defaultSettings.videoCodecOptions
   if (parsed.camera === undefined) parsed.camera = defaultSettings.camera
+  if (parsed.previewFps === undefined) parsed.previewFps = defaultSettings.previewFps
+  if (parsed.previewSize === undefined) parsed.previewSize = defaultSettings.previewSize
+  if (parsed.previewDecoder === undefined) parsed.previewDecoder = defaultSettings.previewDecoder
   return parsed
 }
 

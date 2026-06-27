@@ -208,6 +208,66 @@ export const useDeviceStore = defineStore('devices', () => {
     // 显式触发响应式引用变更以更新大盘折线图
     deviceHistory.value = { ...deviceHistory.value }
   }
+  const previewCallbacks = new Map()
+
+  function registerPreviewCallback(deviceId, callback) {
+    previewCallbacks.set(deviceId, callback)
+  }
+
+  function unregisterPreviewCallback(deviceId) {
+    previewCallbacks.delete(deviceId)
+  }
+
+  function sendPreviewControl(action, deviceId, fps, maxSize) {
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      const payload = {
+        message_type: action,
+        type: action,
+        device_id: deviceId
+      }
+      if (fps !== undefined && fps > 0) payload.fps = fps
+      if (maxSize !== undefined && maxSize > 0) payload.max_size = maxSize
+      globalWs.send(JSON.stringify(payload))
+    }
+  }
+
+  function sendGroupControlEvent(targetDeviceIds, event) {
+    if (globalWs && globalWs.readyState === WebSocket.OPEN) {
+      globalWs.send(JSON.stringify({
+        message_type: 'group_control_event',
+        target_device_ids: targetDeviceIds,
+        event: event
+      }))
+    }
+  }
+
+  function handlePreviewBinary(buffer) {
+    if (buffer.byteLength < 33) return
+    const view = new DataView(buffer)
+    
+    // Check Magic: PREV
+    if (view.getUint8(0) !== 0x50 || view.getUint8(1) !== 0x52 ||
+        view.getUint8(2) !== 0x45 || view.getUint8(3) !== 0x56) return
+
+    // Extract DeviceID (16 bytes)
+    const idBytes = new Uint8Array(buffer, 4, 16)
+    let deviceId = new TextDecoder().decode(idBytes)
+    const nullIdx = deviceId.indexOf('\0')
+    if (nullIdx !== -1) {
+      deviceId = deviceId.substring(0, nullIdx)
+    }
+
+    const cb = previewCallbacks.get(deviceId)
+    if (!cb) return
+
+    const isKey = view.getUint8(20) === 0x01
+    // BigEndian read uint64 ptsUs
+    const ptsUs = Number(view.getBigUint64(21, false))
+    const payloadLen = view.getUint32(29, false)
+    const nalu = new Uint8Array(buffer, 33, payloadLen)
+
+    cb(nalu, isKey, ptsUs)
+  }
 
   let globalWs = null
 
@@ -222,8 +282,13 @@ export const useDeviceStore = defineStore('devices', () => {
     
     debugLog('[Store] Connecting to global signaling:', url)
     globalWs = new WebSocket(url)
+    globalWs.binaryType = 'arraybuffer'
 
     globalWs.onmessage = (evt) => {
+      if (evt.data instanceof ArrayBuffer) {
+        handlePreviewBinary(evt.data)
+        return
+      }
       try {
         const msg = JSON.parse(evt.data)
         if (msg.message_type === 'snapshot_update') {
@@ -322,6 +387,9 @@ export const useDeviceStore = defineStore('devices', () => {
     }
   }
 
+  // 全局高频预览模式状态
+  const globalPreviewMode = ref(false)
+
   // 全局下半屏控制台状态
   const showGlobalConsole = ref(false)
   const consoleDeviceId = ref('')
@@ -405,6 +473,11 @@ export const useDeviceStore = defineStore('devices', () => {
     licenseDaysRemaining,
     licenseStatus,
     fetchLicenseStatus,
-    activateLicense
+    activateLicense,
+    registerPreviewCallback,
+    unregisterPreviewCallback,
+    sendPreviewControl,
+    sendGroupControlEvent,
+    globalPreviewMode
   }
 })

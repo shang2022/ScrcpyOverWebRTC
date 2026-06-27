@@ -13,18 +13,18 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/connect_client': {
-        target: 'http://localhost:8443',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443',
         ws: true
       },
       '/devices': {
-        target: 'http://localhost:8443'
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443'
       },
       '/register_agent': {
-        target: 'http://localhost:8443',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443',
         ws: true
       },
       '/agent': {
-        target: 'http://localhost:8443'
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8443'
       }
     }
   },

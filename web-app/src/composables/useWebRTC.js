@@ -27,6 +27,7 @@ export function useWebRTC(deviceId, options = {}) {
   let touchSeq = 0
   const DEVICE_W = ref(1080)
   const DEVICE_H = ref(1920)
+  let controlEventCallback = null
 
   let cameraChannel = null
   let cameraStream = null
@@ -70,6 +71,7 @@ export function useWebRTC(deviceId, options = {}) {
     }
 
     ws.onmessage = (evt) => {
+      if (typeof evt.data !== 'string') return
       try {
         const msg = JSON.parse(evt.data)
         debugLog('[Signaling] Received:', msg.message_type || msg.type, msg)
@@ -817,6 +819,19 @@ function handleDeviceMessage(payload) {
 
     const bufferedBefore = inputChannel.bufferedAmount
     inputChannel.send(msg)
+    if (controlEventCallback) {
+      controlEventCallback({
+        type: 'touch',
+        id,
+        seq,
+        client_ts_ms: clientTsMs,
+        action,
+        x: finalX,
+        y: finalY,
+        w: targetW,
+        h: targetH
+      })
+    }
     const bufferedAfter = inputChannel.bufferedAmount
     if (action !== 2 || seq % 30 === 0 || bufferedAfter > 65536) {
       debugInfo('[TouchTrace] dc-send', {
@@ -915,6 +930,19 @@ function handleDeviceMessage(payload) {
       scrollV
     })
     inputChannel.send(msg)
+    if (controlEventCallback) {
+      controlEventCallback({
+        type: 'inject_scroll',
+        seq,
+        client_ts_ms: clientTsMs,
+        x: finalX,
+        y: finalY,
+        w: targetW,
+        h: targetH,
+        scroll_h: scrollH,
+        scroll_v: scrollV
+      })
+    }
     return true
   }
 
@@ -1211,11 +1239,15 @@ function handleDeviceMessage(payload) {
       return false
     }
     console.log('[DataChannel] Sending inject_text:', text)
-    const msg = JSON.stringify({
+    const eventObj = {
       type: 'inject_text',
       text
-    })
+    }
+    const msg = JSON.stringify(eventObj)
     inputChannel.send(msg)
+    if (controlEventCallback) {
+      controlEventCallback(eventObj)
+    }
     return true
   }
 
@@ -1225,19 +1257,28 @@ function handleDeviceMessage(payload) {
       return false
     }
     console.log('[DataChannel] Sending inject_keycode:', { action, keycode, repeat, meta })
-    const msg = JSON.stringify({
+    const eventObj = {
       type: 'inject_keycode',
       action,
       keycode,
       repeat,
       meta
-    })
+    }
+    const msg = JSON.stringify(eventObj)
     inputChannel.send(msg)
+    if (controlEventCallback) {
+      controlEventCallback(eventObj)
+    }
     return true
+  }
+
+  function onControlEvent(cb) {
+    controlEventCallback = cb
   }
 
   return {
     status,
+    onControlEvent,
     error,
     audioMuted,
     cameraSupport,

@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="settings-modal" @click.self="$emit('close')">
+    <div class="settings-modal">
       <div class="modal-content animate-fade-in">
         <div class="modal-header">
           <div class="header-title">
@@ -13,16 +13,20 @@
         <!-- 标签页卡片导航 -->
         <div class="modal-tabs">
           <button :class="['tab-btn', { active: activeTab === 'video' }]" @click="activeTab = 'video'">
-            <span class="tab-icon">🎥</span>
-            <span class="tab-label">视频画面</span>
+            <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <span class="tab-label">视频</span>
+          </button>
+          <button :class="['tab-btn', { active: activeTab === 'preview' }]" @click="activeTab = 'preview'">
+            <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+            <span class="tab-label">缩略预览</span>
           </button>
           <button :class="['tab-btn', { active: activeTab === 'audio' }]" @click="activeTab = 'audio'">
-            <span class="tab-icon">🔊</span>
-            <span class="tab-label">音频传输</span>
+            <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            <span class="tab-label">音频</span>
           </button>
           <button :class="['tab-btn', { active: activeTab === 'advanced' }]" @click="activeTab = 'advanced'">
-            <span class="tab-icon">⚙️</span>
-            <span class="tab-label">高级运维</span>
+            <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span class="tab-label">高级</span>
           </button>
         </div>
 
@@ -94,6 +98,40 @@
                 <input type="checkbox" id="camera-toggle" v-model="localSettings.camera" :disabled="!cameraSupport" />
                 <label for="camera-toggle"></label>
               </div>
+            </div>
+          </div>
+
+          <!-- 📊 大盘预览面板 -->
+          <div v-if="activeTab === 'preview'" class="tab-pane">
+            <div class="form-group-divider">高频实时预览</div>
+
+            <div class="form-group">
+              <label>预览分辨率限制 (Preview Max Size)</label>
+              <input type="number" v-model.number="localSettings.previewSize" min="0" step="10" />
+              <small class="hint">默认 360。限制预览流画面最长边，推荐 240 ~ 480 像素</small>
+            </div>
+
+            <div class="form-group">
+              <label>预览帧率控制 (Preview Max FPS)</label>
+              <input type="number" v-model.number="localSettings.previewFps" min="1" max="60" />
+              <small class="hint">默认 10。推荐 5 ~ 15，帧率过高会增加虚拟机 CPU 开销</small>
+            </div>
+
+            <div class="form-group">
+              <label>预览解码模式 (Preview Decoder)</label>
+              <select v-model="localSettings.previewDecoder" class="select-input">
+                <option value="wasm">WASM 软件解码 (兼容性更佳)</option>
+                <option value="webcodecs">WebCodecs 硬件解码 (更省 CPU/电量)</option>
+              </select>
+              <small class="hint">WebCodecs 支持硬件加速但有实例数限制，WASM 兼容性更广泛</small>
+            </div>
+
+            <div class="form-group-divider">待机缩略图</div>
+
+            <div class="form-group">
+              <label>缩略图更新频率 (秒)</label>
+              <input type="number" v-model.number="localSettings.snapshotInterval" min="-1" step="1" />
+              <small class="hint">云手机在未建立 WebRTC 连接时，大盘卡片的静态缩略图后台上报周期。设为 -1 关闭缩略图功能。</small>
             </div>
           </div>
 
@@ -182,12 +220,6 @@
                 <input type="checkbox" id="poweroff-toggle" v-model="localSettings.powerOff" />
                 <label for="poweroff-toggle"></label>
               </div>
-            </div>
-
-            <div class="form-group">
-              <label>静默快照更新频率 (秒)</label>
-              <input type="number" v-model.number="localSettings.snapshotInterval" min="-1" step="1" />
-              <small class="hint">云手机在未建立 WebRTC 时的后台缩略图上报周期。写为 -1 时关闭快照功能。</small>
             </div>
 
             <div class="form-group">
@@ -390,8 +422,9 @@ function resetToGlobal() {
   gap: 4px;
 }
 
-.tab-icon {
-  font-size: 15px;
+.tab-icon-svg {
+  width: 18px;
+  height: 18px;
 }
 
 .tab-label {
@@ -438,6 +471,17 @@ function resetToGlobal() {
   flex-direction: column;
   gap: 12px;
   animation: paneEnter 0.2s ease forwards;
+}
+
+.form-group-divider {
+  font-size: 11px;
+  font-weight: 700;
+  color: #58a6ff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 16px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(88, 166, 255, 0.15);
 }
 
 @keyframes paneEnter {

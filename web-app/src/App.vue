@@ -173,7 +173,7 @@
         <h1 class="page-title">{{ showDeployPage ? '云端自动化部署' : (showFilePage ? '云设备文件中心' : (showMonitorPage ? '云监控实时大盘' : '云虚机矩阵')) }}</h1>
         <div class="top-bar-right">
           <!-- 帮助与支持下拉菜单 -->
-          <div class="header-help-menu" @click.stop>
+          <div class="header-help-menu" @click.stop v-if="!authStore.noAuthMode">
             <button class="help-btn" :class="{ active: showHelpMenu }" @click.stop="showHelpMenu = !showHelpMenu" title="帮助与支持">
               <svg class="help-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -683,11 +683,19 @@ const initApp = () => {
   }
 }
 
-onMounted(() => {
+const handleNavigateEvent = (e) => {
+  if (e && e.detail) {
+    navigateTo(e.detail)
+  }
+}
+
+onMounted(async () => {
+  await authStore.checkNoAuthStatus()
   initApp()
   fetchVersion()
   window.addEventListener('resize', updateMedia)
   window.addEventListener('click', closeHelpMenu)
+  window.addEventListener('cloudphone-navigate', handleNavigateEvent)
   updateMedia() // 确保组件挂载后瞬间重新执行检测，避免初次视口异常
 })
 
@@ -699,6 +707,7 @@ watch(() => authStore.isLoggedIn, (newVal) => {
 onUnmounted(() => {
   window.removeEventListener('resize', updateMedia)
   window.removeEventListener('click', closeHelpMenu)
+  window.removeEventListener('cloudphone-navigate', handleNavigateEvent)
 })
 
 watch(() => deviceStore.activeDeviceId, (newId) => {
